@@ -55,8 +55,12 @@ npm --prefix client run build
 
 ### Option B: GitHub Actions (recommended)
 
-- Add a workflow to build `client/` and deploy `client/dist` to Pages on push to `main`.
-- Store `VITE_SOCKET_ORIGIN` and `VITE_AUDIO_BASE_URL` as repo secrets or env in workflow.
+- Workflow file included: `.github/workflows/deploy-pages.yml`
+- It deploys on push to `main` (or manual run).
+- Configure these **Repository Variables** in GitHub:
+  - `VITE_SOCKET_ORIGIN=https://<your-render-service>.onrender.com`
+  - `VITE_AUDIO_BASE_URL=https://<your-render-service>.onrender.com`
+  - `VITE_BASE_PATH=/` (user/org pages) or `/<repo-name>/` (project pages)
 
 ## 4. Verify
 
