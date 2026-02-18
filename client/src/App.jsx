@@ -65,12 +65,12 @@ export default function App() {
   const audioRef = useRef(null);
   const scheduledPlayTimer = useRef(null);
   const activeStateRef = useRef(null);
-  const offsetSamplesRef = useRef([]);
   const roomIdRef = useRef(initialRoom);
   const audioEnabledRef = useRef(false);
   const serverOffsetRef = useRef(0);
   const seekingRef = useRef(false);
   const pendingRoomStateRef = useRef(null);
+  const offsetCandidatesRef = useRef([]);
 
   const [roomId, setRoomId] = useState(initialRoom);
   const [roomInput, setRoomInput] = useState(roomId);
@@ -92,6 +92,24 @@ export default function App() {
       clearTimeout(scheduledPlayTimer.current);
       scheduledPlayTimer.current = null;
     }
+  };
+
+  const pushOffsetSample = (offsetMs, rttMs) => {
+    const cappedRtt = Number.isFinite(rttMs) ? rttMs : 9999;
+    offsetCandidatesRef.current.push({ offsetMs, rttMs: cappedRtt });
+    if (offsetCandidatesRef.current.length > 30) {
+      offsetCandidatesRef.current.shift();
+    }
+
+    const best = [...offsetCandidatesRef.current]
+      .sort((a, b) => a.rttMs - b.rttMs)
+      .slice(0, 7)
+      .map((x) => x.offsetMs)
+      .sort((a, b) => a - b);
+
+    if (!best.length) return;
+    const median = best[Math.floor(best.length / 2)];
+    setServerOffsetMs((prev) => prev * 0.8 + median * 0.2);
   };
 
   const getEstimatedServerNowMs = () => Date.now() + serverOffsetRef.current;
@@ -190,6 +208,7 @@ export default function App() {
   useEffect(() => {
     const socketServerUrl = SOCKET_ORIGIN || undefined;
     const socket = io(socketServerUrl, {
+      transports: ["websocket"],
       timeout: 5000,
       reconnection: true,
     });
@@ -222,14 +241,9 @@ export default function App() {
       const clientReceivedAtMs = Date.now();
       const rtt = clientReceivedAtMs - clientSentAtMs;
       const estimatedOffset = serverTimeMs - (clientSentAtMs + rtt / 2);
-
-      offsetSamplesRef.current.push(estimatedOffset);
-      if (offsetSamplesRef.current.length > 12) {
-        offsetSamplesRef.current.shift();
+      if (rtt < 700) {
+        pushOffsetSample(estimatedOffset, rtt);
       }
-
-      const sorted = [...offsetSamplesRef.current].sort((a, b) => a - b);
-      setServerOffsetMs(sorted[Math.floor(sorted.length / 2)] || 0);
     });
 
     socket.on("room_state", ({ roomId: incomingRoomId, state }) => {
@@ -243,7 +257,7 @@ export default function App() {
       void applyRoomState(state);
     });
 
-    const clockTimer = setInterval(syncClock, 3000);
+    const clockTimer = setInterval(syncClock, 2000);
 
     return () => {
       clearInterval(clockTimer);
@@ -320,6 +334,7 @@ export default function App() {
   };
 
   const commitSeek = () => {
+    if (!seekingRef.current) return;
     setSeeking(false);
     seekingRef.current = false;
     const positionSec = audioRef.current?.currentTime || 0;
@@ -331,6 +346,24 @@ export default function App() {
       void applyRoomState(pending);
     }
   };
+
+  useEffect(() => {
+    const onGlobalPointerUp = () => {
+      commitSeek();
+    };
+
+    window.addEventListener("pointerup", onGlobalPointerUp);
+    window.addEventListener("pointercancel", onGlobalPointerUp);
+    window.addEventListener("mouseup", onGlobalPointerUp);
+    window.addEventListener("touchend", onGlobalPointerUp);
+
+    return () => {
+      window.removeEventListener("pointerup", onGlobalPointerUp);
+      window.removeEventListener("pointercancel", onGlobalPointerUp);
+      window.removeEventListener("mouseup", onGlobalPointerUp);
+      window.removeEventListener("touchend", onGlobalPointerUp);
+    };
+  }, []);
 
   return (
     <div className="min-h-screen px-4 py-10 text-slate-100">

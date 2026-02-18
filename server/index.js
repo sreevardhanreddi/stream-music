@@ -5,19 +5,33 @@ const http = require("http");
 const { Server } = require("socket.io");
 
 const PORT = process.env.PORT || 3000;
-const PLAY_LEAD_MS = 900;
+const PLAY_LEAD_MS = 250;
+const splitOrigins = (value) =>
+  (value || "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
 const ALLOWED_ORIGINS = [
   "http://localhost:5173",
   "http://127.0.0.1:5173",
-  process.env.VITE_DEV_ORIGIN,
-  process.env.FRONTEND_ORIGIN,
-].filter(Boolean);
+  process.env.LOCAL_IP ? `http://${process.env.LOCAL_IP}:5173` : null,
+  ...splitOrigins(process.env.VITE_DEV_ORIGIN),
+  ...splitOrigins(process.env.FRONTEND_ORIGIN),
+  ...splitOrigins(process.env.CORS_ORIGINS),
+];
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: ALLOWED_ORIGINS,
+    origin: (origin, callback) => {
+      if (!origin || ALLOWED_ORIGINS.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(new Error(`Origin not allowed: ${origin}`));
+    },
     methods: ["GET", "POST"],
   },
 });
@@ -153,7 +167,7 @@ setInterval(() => {
   for (const [roomId, state] of rooms.entries()) {
     io.to(roomId).emit("room_state", { roomId, state, serverTimeMs: nowMs });
   }
-}, 5000);
+}, 1000);
 
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`Sync audio backend running at http://localhost:${PORT}`);
