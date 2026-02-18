@@ -24,8 +24,12 @@ function waitForAudioReady(audio) {
 
   return new Promise((resolve, reject) => {
     let done = false;
+    const timeoutId = setTimeout(() => {
+      finish(() => reject(new Error("audio_ready_timeout")));
+    }, 10000);
 
     const cleanup = () => {
+      clearTimeout(timeoutId);
       audio.removeEventListener("loadedmetadata", onReady);
       audio.removeEventListener("canplay", onReady);
       audio.removeEventListener("error", onError);
@@ -44,8 +48,6 @@ function waitForAudioReady(audio) {
     audio.addEventListener("loadedmetadata", onReady);
     audio.addEventListener("canplay", onReady);
     audio.addEventListener("error", onError);
-
-    setTimeout(() => finish(resolve), 4000);
   });
 }
 
@@ -67,6 +69,8 @@ export default function App() {
   const roomIdRef = useRef(initialRoom);
   const audioEnabledRef = useRef(false);
   const serverOffsetRef = useRef(0);
+  const seekingRef = useRef(false);
+  const pendingRoomStateRef = useRef(null);
 
   const [roomId, setRoomId] = useState(initialRoom);
   const [roomInput, setRoomInput] = useState(roomId);
@@ -180,6 +184,10 @@ export default function App() {
   }, [serverOffsetMs]);
 
   useEffect(() => {
+    seekingRef.current = seeking;
+  }, [seeking]);
+
+  useEffect(() => {
     const socketServerUrl = SOCKET_ORIGIN || undefined;
     const socket = io(socketServerUrl, {
       timeout: 5000,
@@ -228,6 +236,10 @@ export default function App() {
       setRoomId(incomingRoomId);
       setRoomInput(incomingRoomId);
       window.history.replaceState({}, "", `#${incomingRoomId}`);
+      if (seekingRef.current) {
+        pendingRoomStateRef.current = state;
+        return;
+      }
       void applyRoomState(state);
     });
 
@@ -309,8 +321,15 @@ export default function App() {
 
   const commitSeek = () => {
     setSeeking(false);
+    seekingRef.current = false;
     const positionSec = audioRef.current?.currentTime || 0;
     sendControl({ action: "seek", positionSec });
+
+    if (pendingRoomStateRef.current) {
+      const pending = pendingRoomStateRef.current;
+      pendingRoomStateRef.current = null;
+      void applyRoomState(pending);
+    }
   };
 
   return (
@@ -414,8 +433,10 @@ export default function App() {
                 max={duration || 100}
                 step="0.01"
                 value={currentTime}
-                onMouseDown={() => setSeeking(true)}
-                onTouchStart={() => setSeeking(true)}
+                onPointerDown={() => {
+                  setSeeking(true);
+                  seekingRef.current = true;
+                }}
                 onChange={(event) => {
                   const value = Number(event.target.value);
                   setCurrentTime(value);
@@ -423,11 +444,18 @@ export default function App() {
                     audioRef.current.currentTime = value;
                   }
                 }}
-                onMouseUp={() => {
-                  commitSeek();
-                }}
-                onTouchEnd={() => {
-                  commitSeek();
+                onPointerUp={commitSeek}
+                onKeyUp={(event) => {
+                  if (
+                    event.key === "ArrowLeft" ||
+                    event.key === "ArrowRight" ||
+                    event.key === "Home" ||
+                    event.key === "End" ||
+                    event.key === "PageUp" ||
+                    event.key === "PageDown"
+                  ) {
+                    commitSeek();
+                  }
                 }}
                 className="h-2 w-full cursor-pointer appearance-none rounded-lg bg-slate-700 accent-cyan"
               />
