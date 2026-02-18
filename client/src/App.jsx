@@ -17,6 +17,38 @@ function resolveTrackUrl(trackUrl) {
   return trackUrl;
 }
 
+function waitForAudioReady(audio) {
+  if (audio.readyState >= 1) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve, reject) => {
+    let done = false;
+
+    const cleanup = () => {
+      audio.removeEventListener("loadedmetadata", onReady);
+      audio.removeEventListener("canplay", onReady);
+      audio.removeEventListener("error", onError);
+    };
+
+    const finish = (fn) => {
+      if (done) return;
+      done = true;
+      cleanup();
+      fn();
+    };
+
+    const onReady = () => finish(resolve);
+    const onError = () => finish(() => reject(new Error("audio_load_error")));
+
+    audio.addEventListener("loadedmetadata", onReady);
+    audio.addEventListener("canplay", onReady);
+    audio.addEventListener("error", onError);
+
+    setTimeout(() => finish(resolve), 4000);
+  });
+}
+
 function formatTime(value) {
   const total = Math.max(0, Math.floor(value));
   const min = Math.floor(total / 60);
@@ -76,9 +108,20 @@ export default function App() {
     setIsPlaying(state.isPlaying);
 
     const resolvedTrackUrl = resolveTrackUrl(state.trackUrl);
-    if (audio.src !== resolvedTrackUrl) {
+    const trackChanged = audio.src !== resolvedTrackUrl;
+    if (trackChanged) {
       audio.src = resolvedTrackUrl;
+      audio.load();
       setTrackUrlInput(state.trackUrl);
+    }
+
+    if (trackChanged || audio.readyState < 1) {
+      try {
+        await waitForAudioReady(audio);
+      } catch (_err) {
+        setStatus("Track failed to load. Check URL/path.");
+        return;
+      }
     }
 
     const targetNowSec = getNowPositionFromState(state);

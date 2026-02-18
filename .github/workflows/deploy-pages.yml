@@ -3,7 +3,9 @@ name: Deploy Frontend to GitHub Pages
 on:
   push:
     branches: ["master"]
-  workflow_dispatch:
+    paths:
+      - "client/**"
+      - ".github/workflows/deploy-pages.yml"
 
 permissions:
   contents: read
@@ -15,8 +17,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     defaults:
       run:
         working-directory: client
@@ -46,13 +51,6 @@ jobs:
         with:
           path: client/dist
 
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
