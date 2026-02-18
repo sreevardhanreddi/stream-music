@@ -8,6 +8,15 @@ const DEFAULT_TRACK = AUDIO_BASE_URL
   ? `${AUDIO_BASE_URL.replace(/\/$/, "")}/audio/sample.mp3`
   : "/audio/sample.mp3";
 
+function resolveTrackUrl(trackUrl) {
+  if (!trackUrl) return "";
+  if (/^https?:\/\//i.test(trackUrl)) return trackUrl;
+  if (trackUrl.startsWith("/") && AUDIO_BASE_URL) {
+    return `${AUDIO_BASE_URL.replace(/\/$/, "")}${trackUrl}`;
+  }
+  return trackUrl;
+}
+
 function formatTime(value) {
   const total = Math.max(0, Math.floor(value));
   const min = Math.floor(total / 60);
@@ -66,10 +75,9 @@ export default function App() {
     activeStateRef.current = state;
     setIsPlaying(state.isPlaying);
 
-    if (
-      audio.src !== new URL(state.trackUrl, window.location.origin).toString()
-    ) {
-      audio.src = state.trackUrl;
+    const resolvedTrackUrl = resolveTrackUrl(state.trackUrl);
+    if (audio.src !== resolvedTrackUrl) {
+      audio.src = resolvedTrackUrl;
       setTrackUrlInput(state.trackUrl);
     }
 
@@ -430,7 +438,8 @@ export default function App() {
             <p className="text-xs text-slate-400">
               Share this URL with others:{" "}
               <span className="text-slate-200">
-                {window.location.origin}/#{roomId}
+                {window.location.origin}
+                {window.location.pathname}#{roomId}
               </span>
             </p>
           </aside>
