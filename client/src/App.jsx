@@ -83,9 +83,14 @@ export default function App() {
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [seeking, setSeeking] = useState(false);
-  const [volume, setVolume] = useState(1);
+  const [copyState, setCopyState] = useState("idle");
+  const [volume, setVolume] = useState(() => {
+    const saved = localStorage.getItem("volume");
+    return saved !== null ? Number(saved) : 1;
+  });
 
   const waveformBars = useMemo(() => [0, 1, 2, 3, 4], []);
+  const shareUrl = `${window.location.origin}${window.location.pathname}#${roomId}`;
 
   const clearScheduledPlay = () => {
     if (scheduledPlayTimer.current) {
@@ -206,6 +211,12 @@ export default function App() {
   }, [seeking]);
 
   useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.volume = volume;
+    }
+  }, []);
+
+  useEffect(() => {
     const socketServerUrl = SOCKET_ORIGIN || undefined;
     const socket = io(socketServerUrl, {
       transports: ["websocket"],
@@ -279,6 +290,17 @@ export default function App() {
     window.history.replaceState({}, "", `#${nextRoom}`);
     socket.emit("join_room", { roomId: nextRoom });
     setStatus(`Joined room ${nextRoom}`);
+  };
+
+  const copyShareUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopyState("copied");
+    } catch (_err) {
+      setCopyState("failed");
+    }
+
+    setTimeout(() => setCopyState("idle"), 1500);
   };
 
   const enableAudio = async () => {
@@ -419,20 +441,30 @@ export default function App() {
               </button>
               <button
                 onClick={() =>
-                  sendControl({
-                    action: "play",
-                    positionSec: audioRef.current?.currentTime || 0,
-                  })
+                  isPlaying
+                    ? sendControl({ action: "pause" })
+                    : sendControl({
+                        action: "play",
+                        positionSec: audioRef.current?.currentTime || 0,
+                      })
                 }
-                className="rounded-xl border border-emerald-300/40 bg-emerald-400/20 px-4 py-2 font-medium transition hover:bg-emerald-400/30"
+                aria-label={isPlaying ? "Pause" : "Play"}
+                className={`flex items-center justify-center rounded-xl px-4 py-2 font-medium transition ${
+                  isPlaying
+                    ? "border border-rose-300/40 bg-rose-400/20 hover:bg-rose-400/30"
+                    : "border border-emerald-300/40 bg-emerald-400/20 hover:bg-emerald-400/30"
+                }`}
               >
-                Play
-              </button>
-              <button
-                onClick={() => sendControl({ action: "pause" })}
-                className="rounded-xl border border-rose-300/40 bg-rose-400/20 px-4 py-2 font-medium transition hover:bg-rose-400/30"
-              >
-                Pause
+                {isPlaying ? (
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-5 w-5">
+                    <rect x="6" y="4" width="4" height="16" rx="1" />
+                    <rect x="14" y="4" width="4" height="16" rx="1" />
+                  </svg>
+                ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-5 w-5">
+                    <polygon points="5,3 19,12 5,21" />
+                  </svg>
+                )}
               </button>
             </div>
 
@@ -448,6 +480,7 @@ export default function App() {
                   onChange={(event) => {
                     const nextVolume = Number(event.target.value);
                     setVolume(nextVolume);
+                    localStorage.setItem("volume", nextVolume);
                     if (audioRef.current) {
                       audioRef.current.volume = nextVolume;
                     }
@@ -539,13 +572,37 @@ export default function App() {
               Set Track
             </button>
 
-            <p className="text-xs text-slate-400">
-              Share this URL with others:{" "}
-              <span className="text-slate-200">
-                {window.location.origin}
-                {window.location.pathname}#{roomId}
-              </span>
-            </p>
+            <div className="space-y-2 text-xs text-slate-400">
+              <p>Share this URL with others:</p>
+              <div className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900/70 p-2">
+                <span className="min-w-0 flex-1 truncate text-slate-200">
+                  {shareUrl}
+                </span>
+                <button
+                  onClick={copyShareUrl}
+                  type="button"
+                  aria-label="Copy share URL"
+                  title="Copy URL"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-600 text-slate-200 transition hover:border-cyan hover:text-cyan"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    className="h-4 w-4"
+                  >
+                    <rect x="9" y="9" width="11" height="11" rx="2" />
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                  </svg>
+                </button>
+              </div>
+              {copyState === "copied" ? <p className="text-cyan">Copied</p> : null}
+              {copyState === "failed" ? (
+                <p className="text-rose-300">Copy failed</p>
+              ) : null}
+            </div>
           </aside>
         </div>
       </div>

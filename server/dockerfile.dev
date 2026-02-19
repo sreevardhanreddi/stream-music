@@ -1,0 +1,13 @@
+ARG NODE_VERSION=lts-slim
+FROM node:${NODE_VERSION}
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci
+
+COPY server ./server
+
+EXPOSE 3000
+
+CMD ["node", "server/index.js"]

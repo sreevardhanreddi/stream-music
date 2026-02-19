@@ -1,0 +1,25 @@
+services:
+  server:
+    build:
+      context: .
+      dockerfile: server/dockerfile.dev
+    command: node --watch server/index.js
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./server:/app/server
+
+  client:
+    build:
+      context: ./client
+      dockerfile: dockerfile.dev
+    environment:
+      VITE_SOCKET_ORIGIN: http://localhost:3000
+      VITE_AUDIO_BASE_URL: http://localhost:3000
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./client:/app
+      - /app/node_modules
+    depends_on:
+      - server

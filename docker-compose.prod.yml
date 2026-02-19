@@ -1,0 +1,23 @@
+services:
+  server:
+    build:
+      context: .
+      dockerfile: server/dockerfile.prod
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      CORS_ORIGINS: http://localhost:8080
+    ports:
+      - "3000:3000"
+
+  client:
+    build:
+      context: ./client
+      dockerfile: dockerfile.prod
+      args:
+        VITE_SOCKET_ORIGIN: http://localhost:3000
+        VITE_AUDIO_BASE_URL: http://localhost:3000
+    ports:
+      - "8080:80"
+    depends_on:
+      - server
