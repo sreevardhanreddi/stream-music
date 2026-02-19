@@ -3,6 +3,7 @@ const path = require("path");
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
+const { UAParser } = require("ua-parser-js");
 
 const PORT = process.env.PORT || 3000;
 const PLAY_LEAD_MS = 250;
@@ -51,12 +52,32 @@ if (fs.existsSync(clientDistDir)) {
 } else {
   app.get("/", (_req, res) => {
     res.send(
-      'Frontend not built yet. Run "npm run dev" for local dev or "npm run build" for production build.',
+      'Frontend not built yet. Run "npm run dev" for local dev or "npm run build" for production build.'
     );
   });
 }
 
 const rooms = new Map();
+// Map<roomId, Map<clientId, { browser, os, ip, joinedAt }>>
+const roomPeers = new Map();
+
+function getClientIp(socket) {
+  const forwarded = socket.handshake.headers["x-forwarded-for"];
+  const raw = forwarded
+    ? forwarded.split(",")[0].trim()
+    : socket.handshake.address;
+  return raw.replace(/^::ffff:/, "");
+}
+
+function emitRoomPeers(roomId) {
+  const peers = roomPeers.has(roomId)
+    ? [...roomPeers.get(roomId).entries()].map(([clientId, info]) => ({
+        clientId,
+        ...info,
+      }))
+    : [];
+  io.to(roomId).emit("room_peers", { roomId, peers });
+}
 
 function createRoomState() {
   const now = Date.now();
@@ -80,7 +101,7 @@ function nowPositionSec(state, nowMs) {
   if (!state.isPlaying) return state.anchorPositionSec;
   return Math.max(
     0,
-    state.anchorPositionSec + (nowMs - state.anchorServerTimeMs) / 1000,
+    state.anchorPositionSec + (nowMs - state.anchorServerTimeMs) / 1000
   );
 }
 
@@ -90,13 +111,36 @@ function clampPosition(value) {
 }
 
 io.on("connection", (socket) => {
-  socket.on("join_room", ({ roomId }) => {
+  socket.on("join_room", ({ roomId, clientId, userAgent }) => {
     const id = (roomId || "main").trim() || "main";
     socket.join(id);
     socket.data.roomId = id;
+    socket.data.clientId = clientId;
+
+    const parsed = new UAParser(userAgent || "").getResult();
+    const browser = parsed.browser.name || "Unknown Browser";
+    const os = parsed.os.name || "Unknown OS";
+
+    if (!roomPeers.has(id)) roomPeers.set(id, new Map());
+    roomPeers.get(id).set(clientId, {
+      browser,
+      os,
+      ip: getClientIp(socket),
+      joinedAt: Date.now(),
+    });
 
     const state = getRoomState(id);
     socket.emit("room_state", { roomId: id, state, serverTimeMs: Date.now() });
+    emitRoomPeers(id);
+  });
+
+  socket.on("disconnect", () => {
+    const { roomId, clientId } = socket.data;
+    if (roomId && clientId && roomPeers.has(roomId)) {
+      roomPeers.get(roomId).delete(clientId);
+      if (roomPeers.get(roomId).size === 0) roomPeers.delete(roomId);
+      else emitRoomPeers(roomId);
+    }
   });
 
   socket.on("clock_ping", ({ clientSentAtMs }) => {

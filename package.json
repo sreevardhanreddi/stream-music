@@ -5,16 +5,27 @@
   "main": "server/index.js",
   "scripts": {
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
-    "dev:server": "node server/index.js",
+    "dev:server": "nodemon server/index.js",
     "dev:client": "npm --prefix client run dev",
     "build": "npm --prefix client run build",
-    "start": "node server/index.js"
+    "start": "node server/index.js",
+    "lint": "eslint server/",
+    "lint:fix": "eslint server/ --fix",
+    "format": "prettier --write server/",
+    "format:check": "prettier --check server/"
   },
   "dependencies": {
     "express": "^4.21.2",
-    "socket.io": "^4.8.1"
+    "socket.io": "^4.8.1",
+    "ua-parser-js": "^2.0.9"
   },
   "devDependencies": {
-    "concurrently": "^9.1.2"
+    "@eslint/js": "^10.0.1",
+    "concurrently": "^9.1.2",
+    "eslint": "^10.0.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.3.0",
+    "nodemon": "^3.1.11",
+    "prettier": "^3.8.1"
   }
 }

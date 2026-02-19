@@ -1,7 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { io } from "socket.io-client";
+import { QRCodeSVG } from "qrcode.react";
 
 const DEFAULT_ROOM = "main";
+
+const clientId = (() => {
+  let id = localStorage.getItem("clientId");
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem("clientId", id);
+  }
+  return id;
+})();
 const SOCKET_ORIGIN = import.meta.env.VITE_SOCKET_ORIGIN || "";
 const AUDIO_BASE_URL = import.meta.env.VITE_AUDIO_BASE_URL || SOCKET_ORIGIN;
 const DEFAULT_TRACK = AUDIO_BASE_URL
@@ -84,6 +94,7 @@ export default function App() {
   const [currentTime, setCurrentTime] = useState(0);
   const [seeking, setSeeking] = useState(false);
   const [copyState, setCopyState] = useState("idle");
+  const [peers, setPeers] = useState([]);
   const [volume, setVolume] = useState(() => {
     const saved = localStorage.getItem("volume");
     return saved !== null ? Number(saved) : 1;
@@ -164,7 +175,8 @@ export default function App() {
       return;
     }
 
-    const targetStartLocalMs = state.anchorServerTimeMs - serverOffsetRef.current;
+    const targetStartLocalMs =
+      state.anchorServerTimeMs - serverOffsetRef.current;
     const delayMs = Math.max(0, targetStartLocalMs - Date.now());
 
     const startPlayback = async () => {
@@ -232,7 +244,11 @@ export default function App() {
     socket.on("connect", () => {
       setIsConnected(true);
       setStatus("Connected");
-      socket.emit("join_room", { roomId: roomIdRef.current });
+      socket.emit("join_room", {
+        roomId: roomIdRef.current,
+        clientId,
+        userAgent: navigator.userAgent,
+      });
       syncClock();
     });
 
@@ -244,7 +260,7 @@ export default function App() {
     socket.on("connect_error", (err) => {
       setIsConnected(false);
       setStatus(
-        `Connection error: ${err?.message || "backend unavailable"} (${socketServerUrl || "same-origin"})`,
+        `Connection error: ${err?.message || "backend unavailable"} (${socketServerUrl || "same-origin"})`
       );
     });
 
@@ -256,6 +272,8 @@ export default function App() {
         pushOffsetSample(estimatedOffset, rtt);
       }
     });
+
+    socket.on("room_peers", ({ peers }) => setPeers(peers));
 
     socket.on("room_state", ({ roomId: incomingRoomId, state }) => {
       setRoomId(incomingRoomId);
@@ -288,7 +306,11 @@ export default function App() {
     const nextRoom = roomInput.trim() || DEFAULT_ROOM;
     setRoomId(nextRoom);
     window.history.replaceState({}, "", `#${nextRoom}`);
-    socket.emit("join_room", { roomId: nextRoom });
+    socket.emit("join_room", {
+      roomId: nextRoom,
+      clientId,
+      userAgent: navigator.userAgent,
+    });
     setStatus(`Joined room ${nextRoom}`);
   };
 
@@ -456,12 +478,22 @@ export default function App() {
                 }`}
               >
                 {isPlaying ? (
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-5 w-5">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                    className="h-5 w-5"
+                  >
                     <rect x="6" y="4" width="4" height="16" rx="1" />
                     <rect x="14" y="4" width="4" height="16" rx="1" />
                   </svg>
                 ) : (
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-5 w-5">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                    className="h-5 w-5"
+                  >
                     <polygon points="5,3 19,12 5,21" />
                   </svg>
                 )}
@@ -572,6 +604,33 @@ export default function App() {
               Set Track
             </button>
 
+            <div>
+              <h3 className="mb-2 text-sm font-medium text-slate-300">
+                Listeners ({peers.length})
+              </h3>
+              <ul className="space-y-1">
+                {peers.map((p) => (
+                  <li
+                    key={p.clientId}
+                    className="rounded-lg bg-slate-900/50 px-3 py-2 text-xs text-slate-300 space-y-0.5"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-cyan">
+                        {p.clientId.slice(0, 8)}
+                      </span>
+                      <span className="flex-1 truncate">
+                        {p.browser} · {p.os}
+                      </span>
+                      {p.clientId === clientId && (
+                        <span className="text-slate-500">(you)</span>
+                      )}
+                    </div>
+                    <div className="font-mono text-slate-500">{p.ip}</div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
             <div className="space-y-2 text-xs text-slate-400">
               <p>Share this URL with others:</p>
               <div className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900/70 p-2">
@@ -598,10 +657,21 @@ export default function App() {
                   </svg>
                 </button>
               </div>
-              {copyState === "copied" ? <p className="text-cyan">Copied</p> : null}
+              {copyState === "copied" ? (
+                <p className="text-cyan">Copied</p>
+              ) : null}
               {copyState === "failed" ? (
                 <p className="text-rose-300">Copy failed</p>
               ) : null}
+              <div className="flex justify-center pt-1">
+                <QRCodeSVG
+                  value={shareUrl}
+                  size={148}
+                  bgColor="transparent"
+                  fgColor="#e2e8f0"
+                  className="rounded-lg"
+                />
+              </div>
             </div>
           </aside>
         </div>
@@ -626,7 +696,7 @@ export default function App() {
           const audio = audioRef.current;
           const mediaErrorCode = audio?.error?.code;
           setStatus(
-            `Track failed to load (${mediaErrorCode || "unknown"}). Check URL/path.`,
+            `Track failed to load (${mediaErrorCode || "unknown"}). Check URL/path.`
           );
         }}
         onTimeUpdate={onTimeUpdate}
